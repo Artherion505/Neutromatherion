@@ -1,0 +1,16 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+*.aux
+*.log
+*.out
+*.synctex.gz
+Neutromatherion*.pdf
+Neutromatherion*.tex
+fig_*.png
+fig_sparc.pdf
+heatmap_scan.png
+rotation_curve.png
+scan_results.csv
+thinshell_scan.csv
