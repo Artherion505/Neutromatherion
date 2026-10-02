@@ -1,67 +1,96 @@
-import numpy as np
+from pathlib import Path
+
 import matplotlib.pyplot as plt
+import numpy as np
 
-# 1. PARÁMETROS CALIBRADOS
-G = 4.300e-6          # Constante Gravitacional [(kpc) * (km/s)^2 / M_sun]
-M_disk = 1.2e10       # Masa del disco bariónico [M_sun]
-R_disk = 2.5          # Radio de escala del disco [kpc]
 
-# Parámetros del Campo Neutromatherion N(r)
-g_coupling = 3.8e-3   # Constante de acoplamiento escalar
-m_N = 0.005           # Masa efectiva del campo (rango extendido)
+G = 4.300e-6  # kpc (km/s)^2 / M_sun
+UPSILON_DISK = 0.5  # M_sun / L_sun at 3.6 um
+UPSILON_BULGE = 0.7  # M_sun / L_sun at 3.6 um
 
-# Dominio de radio galáctico
-r = np.linspace(0.1, 25.0, 500)
+# Exploratory Yukawa-like correction; these parameters are not fitted to SPARC.
+g_coupling = 3.8e-3
+m_N = 0.005  # kpc^-1
 
-# 2. PERFIL DE MASA BARIÓNICA Y VELOCIDADES
-M_b = M_disk * (1 - (1 + r / R_disk) * np.exp(-r / R_disk))
-v_newton = np.sqrt(G * M_b / r)
+SPARC_FILE = Path(__file__).resolve().parent / "data" / "NGC3198_rotmod.dat"
+if not SPARC_FILE.is_file():
+        raise FileNotFoundError(f"No se encuentra la tabla SPARC: {SPARC_FILE}")
 
-term_reactio = (g_coupling**2 * M_b / (4 * np.pi)) * ((1 / r) + m_N) * np.exp(-m_N * r)
-v_unitario = np.sqrt(v_newton**2 + term_reactio)
+# Official SPARC Rotmod_LTG data for NGC 3198.
+# Source: https://astroweb.cwru.edu/SPARC/Rotmod_LTG.zip
+# Cite Lelli, McGaugh & Schombert (2016), AJ, 152, 157.
+sparc_data = np.loadtxt(SPARC_FILE, comments="#")
+if sparc_data.ndim != 2 or sparc_data.shape[1] != 8:
+        raise ValueError("La tabla SPARC debe tener ocho columnas numericas.")
 
-# 3. PUNTOS SINTETICOS DE EJEMPLO (Inspirados en radios SPARC)
-np.random.seed(42)
-r_sparc = np.array([0.8, 1.8, 3.2, 5.0, 7.5, 10.0, 13.0, 16.0, 19.0, 22.0, 24.5])
-M_b_sparc = M_disk * (1 - (1 + r_sparc / R_disk) * np.exp(-r_sparc / R_disk))
+(r_sparc, v_obs, err_v, v_gas, v_disk, v_bulge,
+ surface_brightness_disk, surface_brightness_bulge) = sparc_data.T
 
-term_reactio_sparc = (g_coupling**2 * M_b_sparc / (4 * np.pi)) * ((1 / r_sparc) + m_N) * np.exp(-m_N * r_sparc)
-v_sparc_true = np.sqrt((G * M_b_sparc / r_sparc) + term_reactio_sparc)
+# SPARC convention: preserve the sign of Vgas when forming Vbar squared.
+v_baryon_squared = (
+        v_gas * np.abs(v_gas)
+        + UPSILON_DISK * v_disk**2
+        + UPSILON_BULGE * v_bulge**2
+)
+v_baryon_squared = np.maximum(v_baryon_squared, 0.0)
+v_baryon = np.sqrt(v_baryon_squared)
 
-v_sparc_obs = v_sparc_true + np.random.normal(0, 2.5, size=len(r_sparc))
-v_err = np.random.uniform(3.5, 5.5, size=len(r_sparc))
+# Approximate the baryonic distribution as spherical to evaluate the proposed
+# extra force. This is an exploratory approximation, not a SPARC mass fit.
+m_b_spherical_equivalent = r_sparc * v_baryon_squared / G
+alpha = g_coupling**2 / (4.0 * np.pi)
+v_reactio_squared = (
+        G
+        * m_b_spherical_equivalent
+        * alpha
+        * (1.0 / r_sparc + m_N)
+        * np.exp(-m_N * r_sparc)
+)
+v_neutromatherion = np.sqrt(np.maximum(v_baryon_squared + v_reactio_squared, 0.0))
 
-# 4. GRAFICADO Y EXPORTACIÓN
-plt.style.use('seaborn-v0_8-darkgrid' if 'seaborn-v0_8-darkgrid' in plt.style.available else 'default')
+plt.style.use(
+        "seaborn-v0_8-darkgrid" if "seaborn-v0_8-darkgrid" in plt.style.available else "default"
+)
 fig, ax = plt.subplots(figsize=(10, 6), dpi=300)
 
-ax.errorbar(r_sparc, v_sparc_obs, yerr=v_err, fmt='o', color='#d62728',
-            ecolor='#ff9896', elinewidth=1.8, capsize=4, capthick=1.5,
-            label='Datos sintéticos de ejemplo', zorder=5)
+ax.errorbar(
+        r_sparc,
+        v_obs,
+        yerr=err_v,
+        fmt="o",
+        color="#d62728",
+        ecolor="#ff9896",
+        elinewidth=1.5,
+        capsize=3,
+        label="Observaciones SPARC: NGC 3198",
+        zorder=5,
+)
+ax.plot(
+        r_sparc,
+        v_baryon,
+        "--",
+        color="#1f77b4",
+        linewidth=2,
+        label=r"Bariones (SPARC, $\Upsilon_{disk}=0.5$)",
+)
+ax.plot(
+        r_sparc,
+        v_neutromatherion,
+        "-",
+        color="#2ca02c",
+        linewidth=2.5,
+        label="Bariones + correccion Neutromatherion (exploratoria)",
+)
 
-ax.plot(r, v_newton, linestyle='--', color='#1f77b4', linewidth=2.0,
-        label=r'Newtoniano Bariónico ($v \propto r^{-1/2}$)')
+ax.set_title("Curva de rotacion SPARC: NGC 3198")
+ax.set_xlabel("Radio galactocentrico [kpc]")
+ax.set_ylabel("Velocidad circular [km/s]")
+ax.set_xlim(0, r_sparc.max() + 1)
+ax.set_ylim(bottom=0)
+ax.legend(loc="best", frameon=True)
+fig.tight_layout()
 
-ax.plot(r, v_unitario, linestyle='-', color='#2ca02c', linewidth=2.5,
-        label=r'Modelo $N(r)$ (Tejido Reactio del Neutromatherion)')
-
-ax.fill_between(r, v_newton, v_unitario, color='#2ca02c', alpha=0.18,
-                label=r'Aporte de la Fuerza Reactiva $g \cdot r \frac{dN}{dr}$')
-
-ax.set_title('Curva de Rotación Galáctica: Física Estándar vs. Cosmología de la Unidad', fontsize=13, fontweight='bold', pad=12)
-ax.set_xlabel('Radio Galáctico $r$ [kpc]', fontsize=11)
-ax.set_ylabel('Velocidad Orbital $v(r)$ [km/s]', fontsize=11)
-ax.set_xlim(0, 25)
-ax.set_ylim(0, 110)
-
-ax.annotate('Región Asintótica / Plana\n' + r'$v_{flat} \approx \sqrt{\frac{g^2 M_b}{4\pi}}$',
-            xy=(18, v_unitario[360]), xytext=(12, 85),
-            arrowprops=dict(facecolor='black', shrink=0.08, width=1, headwidth=5),
-            fontsize=10, bbox=dict(boxstyle="round,pad=0.4", fc="white", ec="gray", lw=0.8))
-
-ax.legend(loc='lower right', frameon=True, facecolor='white', framealpha=0.95, fontsize=9.5)
-plt.tight_layout()
-
-# Guardar figura para LaTeX
-plt.savefig('curva_rotacion_unidad.png', dpi=300)
+output_path = Path(__file__).resolve().with_name("curva_rotacion_NGC3198.png")
+fig.savefig(output_path, dpi=300)
+print(f"Grafica guardada en {output_path}")
 plt.show()
