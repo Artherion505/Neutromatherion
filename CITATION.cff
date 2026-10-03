@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: >-
+  If this framework or its ideas inform your work, please acknowledge its creator
+  and cite this repository. For a versioned release, cite its Zenodo DOI.
+title: Neutromatherion
+authors:
+  - family-names: López-Fernández
+    given-names: David
+repository-code: https://github.com/Artherion505/Neutromatherion
